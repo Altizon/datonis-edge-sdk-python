@@ -5,7 +5,7 @@ import random
 import sys
 import time
 
-from com.altizon.aliot import *
+from altizon.io.datonis.edge import *
 
 
 def my_instruction_handler(gateway, timestamp, thing_key, alert_key, instruction):
@@ -30,9 +30,9 @@ def send_example_alerts(gateway, thing):
     send_example_alert(gateway, thing, 3, 'CRITICAL')
 
 def main():
-    logging.basicConfig(filename='aliot-agent.log', level = logging.INFO, format = '%(asctime)s %(message)s')
+    logging.basicConfig(filename='edge-agent.log', level = logging.INFO, format = '%(asctime)s %(message)s')
     logging.getLogger().addHandler(logging.StreamHandler())
-    logging.info('Starting aliot agent')
+    logging.info('Starting edge agent')
     
     ###################################################### USE ONE OF THE 4 OPTIONS below to create a gateway ###############################################
     # NOTE: If you intend to use MQTT mode, then multi-threading support is required and assumed
@@ -87,21 +87,21 @@ def main():
             else:
                 logging.info("Heartbeat sent for thing: " + thing.name)
         data = {'pressure': math.ceil(random.uniform(0, 100)), 'temperature': math.ceil(random.uniform(0, 100))}
-	#waypoint format: [latitude, longitude]
-	waypoint = [random.uniform(18, 19), random.uniform(73, 74)]
-	#pass data as None to send only waypoint.
-	#pass waypoint as None to send only data.
-	#or pass both data and waypoint to send both of them.
-	#you can also send timestamp as fourth parameter to create_thing_event, default it will send current time.
-	thing_event = aliot_util.create_thing_event(thing, data)
-	#thing_event = aliot_util.create_thing_event(thing, None, waypoint)
-	#thing_event = aliot_util.create_thing_event(thing, data, waypoint)
-	#thing_event = aliot_util.create_thing_event(thing, data, None, int(time.time()*1000))
+        #waypoint format: [latitude, longitude]
+        waypoint = [random.uniform(18, 19), random.uniform(73, 74)]
+        #pass data as None to send only waypoint.
+        #pass waypoint as None to send only data.
+        #or pass both data and waypoint to send both of them.
+        #you can also send timestamp as fourth parameter to create_thing_event, default it will send current time.
+        thing_event = edge_util.create_thing_event(thing, data)
+        #thing_event = edge_util.create_thing_event(thing, None, waypoint)
+        #thing_event = edge_util.create_thing_event(thing, data, waypoint)
+        #thing_event = edge_util.create_thing_event(thing, data, None, int(time.time()*1000))
         if gateway.thing_event(thing_event) == True:
             logging.error("Sent event data for thing: " + str(thing_event))
         else:
             logging.error("Failed to send event data for thing: " + str(thing_event))
         time.sleep(5)
-    logging.info('Exiting aliot agent')
+    logging.info('Exiting edge agent')
 
 main()

@@ -5,11 +5,11 @@ import logging
 import sys
 import threading
 
-from . import aliot_util
-from .aliot_gateway import AliotGateway
+from . import edge_util
+from .edge_gateway import EdgeGateway
 import paho.mqtt.client as mqtt
 
-if aliot_util.is_python3:
+if edge_util.is_python3:
     import queue as Queue
     import _thread as thread
 else:
@@ -27,7 +27,7 @@ def on_disconnect(client, userdata,rc):
 
 def on_message(client, userdata, msg):
     topic = str(msg.topic)
-    payload = aliot_util.get_str(msg.payload)
+    payload = edge_util.get_str(msg.payload)
     logging.debug("Received msg with topic: " + topic + ", payload: " + payload)
     if topic.endswith('httpAck'):
         userdata.ack_lock.acquire()
@@ -58,7 +58,7 @@ def instruction_dispatcher(gateway):
     logging.debug('Received Hash: ' + h)
     remainder = json.dumps(instruction, separators=(',', ':'))
     logging.debug('Remainder instruction: ' + remainder)
-    re_calculated_hash = aliot_util.encode(gateway.gateway_config.secret_key, remainder)
+    re_calculated_hash = edge_util.encode(gateway.gateway_config.secret_key, remainder)
     logging.debug('Recalculated hash: ' + re_calculated_hash)
     if h == re_calculated_hash:
         instruction_code = instruction['instruction_wrapper']['instruction']
@@ -76,11 +76,11 @@ def random_string(string_length=10):
     random = random.replace("-","") # Remove the UUID '-'.
     return random[0:string_length] # Return the random string.
 
-class AliotGatewayMqtt(AliotGateway):
+class EdgeGatewayMqtt(EdgeGateway):
     HTTP_ACK_MAX_RETRIES = 10
     
     def __init__(self, in_gateway_config):
-        AliotGateway.__init__(self, in_gateway_config)
+        EdgeGateway.__init__(self, in_gateway_config)
         self.mqtt_client = None
         self.ack_lock = None
         self.ack_context = None
@@ -112,7 +112,7 @@ class AliotGatewayMqtt(AliotGateway):
         
     def thing_heartbeat(self, thing):
         logging.debug('thing_heartbeat start')
-        data = aliot_util.create_thing_heartbeat(thing)
+        data = edge_util.create_thing_heartbeat(thing)
         retval = self.send_message('Altizon/Datonis/' + self.client_id + '/heartbeat', data, 0)
         logging.debug('thing_heartbeat end')
         return retval
@@ -151,7 +151,7 @@ class AliotGatewayMqtt(AliotGateway):
 
     def thing_register(self, thing):
         logging.debug('thing_register start')
-        data = aliot_util.create_thing_register(thing)
+        data = edge_util.create_thing_register(thing)
         retval = self.send_message('Altizon/Datonis/' + self.client_id + '/register', data, 1)
         #Add thing so that we set up instruction listeners for this thing
         if thing not in self.things:
@@ -167,7 +167,7 @@ class AliotGatewayMqtt(AliotGateway):
 
     def alert(self, thing_key, alert_message, alert_level = 0, alert_data = {}):
         logging.debug('alert start')
-        data = aliot_util.create_alert(thing_key, alert_message, alert_level, alert_data)
+        data = edge_util.create_alert(thing_key, alert_message, alert_level, alert_data)
         retval = self.send_message('Altizon/Datonis/' + self.client_id + '/alert', data, 0)
         logging.debug('alert end')
         return retval
@@ -175,19 +175,19 @@ class AliotGatewayMqtt(AliotGateway):
     # Sends an instruction ack in the form of an alert to datonis
     def instruction_ack(self, alert_key, alert_message, alert_level = 0, alert_data = {}):
         logging.debug('instruction_ack start')
-        data = aliot_util.create_instruction_alert(alert_key, alert_message, alert_level, alert_data)
+        data = edge_util.create_instruction_alert(alert_key, alert_message, alert_level, alert_data)
         retval = self.send_message('Altizon/Datonis/' + self.client_id + '/alert', data, 0)
         logging.debug('instruction_alert end')
         return retval
 
     def send_message(self, topic, payload, qos):
         logging.debug('send_message start')
-        t1 = aliot_util.get_ts()
+        t1 = edge_util.get_ts()
         self.ack_lock.acquire()
         self.ack_code = None
         retval = False
         data = json.dumps(payload, separators=(',', ':'))
-        h = aliot_util.encode(str(self.gateway_config.secret_key),data)
+        h = edge_util.encode(str(self.gateway_config.secret_key),data)
         payload['hash'] = h
         payload['access_key'] = str(self.gateway_config.access_key)
         data = json.dumps(payload, separators=(',', ':'))
@@ -204,7 +204,7 @@ class AliotGatewayMqtt(AliotGateway):
                 if self.ack_code == None:
                     logging.info('Timed out waiting for response from Datonis')
                 else:
-                    t2 = aliot_util.get_ts()
+                    t2 = edge_util.get_ts()
                     logging.info('Response from Datonis: ' + str(self.ack_code) + ', time elapsed: ' + str(t2 - t1) + ' milliseconds' + ', retries: ' + str(counter))
 
                     if self.ack_content != None:

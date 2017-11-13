@@ -1,15 +1,15 @@
 import json
 import logging
 import requests
-from . import aliot_util
-from .aliot_gateway import AliotGateway
+from . import edge_util
+from .edge_gateway import EdgeGateway
 import collections
 
 
-class AliotGatewayHttp(AliotGateway):
+class EdgeGatewayHttp(EdgeGateway):
     
     def __init__(self, in_gateway_config):
-        AliotGateway.__init__(self, in_gateway_config)
+        EdgeGateway.__init__(self, in_gateway_config)
         
     # Nothing needs to be done specifically for connect in http gateway
     def connect(self):
@@ -17,7 +17,7 @@ class AliotGatewayHttp(AliotGateway):
 
     def thing_heartbeat(self, thing):
         logging.debug('thing_heartbeat start')
-        data = aliot_util.create_thing_heartbeat(thing)
+        data = edge_util.create_thing_heartbeat(thing)
         retval = self.post_message('/api/v3/things/heartbeat.json', data)
         logging.debug('thing_heartbeat end')
         return retval
@@ -42,7 +42,7 @@ class AliotGatewayHttp(AliotGateway):
 
     def thing_register(self, thing):
         logging.debug('thing_register start')
-        data = aliot_util.create_thing_register(thing)
+        data = edge_util.create_thing_register(thing)
         retval = self.post_message('/api/v3/things/register.json', data)
         if retval == True:
             logging.debug("registered thing " + thing.name) 
@@ -53,7 +53,7 @@ class AliotGatewayHttp(AliotGateway):
 
     def alert(self, thing_key, alert_message, alert_level = 0, alert_data = {}):
         logging.debug('alert start')
-        data = aliot_util.create_alert(thing_key, alert_message, alert_level, alert_data)
+        data = edge_util.create_alert(thing_key, alert_message, alert_level, alert_data)
         retval = self.post_message('/api/v3/alerts.json', data)
         logging.debug('alert end')
         return retval
@@ -68,7 +68,7 @@ class AliotGatewayHttp(AliotGateway):
         post_url = self.get_base_url() + url
         headers={}
         data = json.dumps(payload)
-        headers['X-Dtn-Signature']= aliot_util.encode(str(self.gateway_config.secret_key),data )
+        headers['X-Dtn-Signature']= edge_util.encode(str(self.gateway_config.secret_key),data )
         headers['X-Access-Key']= str(self.gateway_config.access_key)
         headers['Content-Type'] = "application/json"
         try:

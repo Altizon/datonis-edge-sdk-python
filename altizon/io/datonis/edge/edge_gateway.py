@@ -1,7 +1,7 @@
-from . import aliot_util
+from . import edge_util
 
-# The Aliot Gateway Interface. HTTP or MQTT concrete implementations are available for consumption
-class AliotGateway:
+# The Edge Gateway Interface. HTTP or MQTT concrete implementations are available for consumption
+class EdgeGateway:
     def __init__(self, in_gateway_config):
         self.gateway_config = in_gateway_config 
     
@@ -19,7 +19,7 @@ class AliotGateway:
     
     # Creates a Thing Data Packet (event) to be sent to Datonis
     def create_thing_event(self, thing, data_value, waypoint = None, ts = None):
-        return aliot_util.create_thing_event(thing,data_value, ts)
+        return edge_util.create_thing_event(thing,data_value, ts)
 
     # Sends a Thing Data Packet (event) to Datonis
     def thing_event(self, data):

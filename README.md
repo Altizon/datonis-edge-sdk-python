@@ -2,7 +2,7 @@ Datonis Agent Python SDK
 ==========================
 Python language version of Datonis Agent SDK
 
-Implementing Aliot Agent
+Implementing Edge Agent
 ------------------------
 
 Our python agent need 'requests' module for its HTTP communication, use following command to install it.

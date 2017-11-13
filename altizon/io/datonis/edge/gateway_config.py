@@ -1,5 +1,5 @@
-from .aliot_gateway_http import AliotGatewayHttp
-from .aliot_gateway_mqtt import AliotGatewayMqtt
+from .edge_gateway_http import EdgeGatewayHttp
+from .edge_gateway_mqtt import EdgeGatewayMqtt
 
 class GatewayConfig:
     def __init__(self, in_access_key, in_secret_key, in_protocol, in_cert_path=None, in_api_host=None, in_api_port=None):
@@ -21,6 +21,6 @@ class GatewayConfig:
 
     def create_gateway(self):
         if self.protocol == 'mqtt' or self.protocol == 'mqtts':
-            return AliotGatewayMqtt(self)
+            return EdgeGatewayMqtt(self)
         else:
-            return AliotGatewayHttp(self)
+            return EdgeGatewayHttp(self)
