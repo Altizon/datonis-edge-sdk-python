@@ -17,9 +17,15 @@ else:
     import thread as thread
 
 def on_connect(client, userdata, flags,rc):
-    logging.info("Connected to the MQTT broker with return code: " + str(flags) + ", " + str(rc))
-    userdata.subscribe_for_instructions()
-    userdata.subscribe_for_acks()
+    if rc == mqtt.CONNACK_ACCEPTED:
+        userdata.authorised = True
+        logging.info("Connected to the MQTT broker with return code: " + str(flags) + ", " + str(rc))
+        userdata.subscribe_for_instructions()
+        userdata.subscribe_for_acks()
+    elif rc == mqtt.CONNACK_REFUSED_NOT_AUTHORIZED:
+        logging.error("Connection Unauthorised. ")
+        userdata.authorised = False
+        client.disconnect()
 
 
 def on_disconnect(client, userdata,rc):
@@ -46,7 +52,7 @@ def instruction_worker(thread_name,gateway):
             instruction_dispatcher(gateway) 
         except:
             e = sys.exc_info()[0]
-            logging.error('instruction_dispatcher failed', str(e))
+            logging.error('instruction_dispatcher failed' + str(e))
                
 
 def instruction_dispatcher(gateway):
@@ -90,9 +96,13 @@ class EdgeGatewayMqtt(EdgeGateway):
         self.instruction_handler = None
         self.client_id = random_string(10)
         self.things = []
+        self.username = in_gateway_config.access_key
+        self.password = edge_util.encode(in_gateway_config.secret_key,in_gateway_config.access_key)
+        self.authorised = True
 
     def connect(self):
         self.mqtt_client = mqtt.Client(self.client_id, True, self)
+        self.mqtt_client.username_pw_set(self.username, self.password)
         self.mqtt_client.on_connect = on_connect
         self.mqtt_client.on_disconnect = on_disconnect
         self.mqtt_client.on_message = on_message
@@ -104,8 +114,6 @@ class EdgeGatewayMqtt(EdgeGateway):
             self.mqtt_client.loop_start()
             # Start a new thread for instruction execution
             thread.start_new_thread(instruction_worker, ('instruction-worker', self))
-            self.subscribe_for_instructions()
-            self.subscribe_for_acks()
             return True
         else:
             return False
@@ -136,9 +144,15 @@ class EdgeGatewayMqtt(EdgeGateway):
         return retval
     
     def subscribe_for_acks(self):
+        if not self.authorised:
+            logging.error("Unauthorised to subscribe, Please check access key and secret key")
+            return False
         self.mqtt_client.subscribe('Altizon/Datonis/' + self.client_id + '/httpAck', 1)
 
     def subscribe_for_instructions(self):
+        if not self.authorised:
+            logging.error("Unauthorised to subscribe, Please check access key and secret key")
+            return False
         for thing in self.things:
             self.subscribe_for_thing_instruction(thing)
 
@@ -182,6 +196,9 @@ class EdgeGatewayMqtt(EdgeGateway):
 
     def send_message(self, topic, payload, qos):
         logging.debug('send_message start')
+        if not self.authorised:
+            logging.error("Unauthorised to send_message, Please check access key and secret key")
+            return False
         t1 = edge_util.get_ts()
         self.ack_lock.acquire()
         self.ack_code = None
@@ -213,14 +230,14 @@ class EdgeGatewayMqtt(EdgeGateway):
                             if type(parsed) is list:
                                 error_msgs = parsed
                             else:
-                                error_msgs = parsed["errors"]
+                                error_msgs = parsed.get("errors")
 
                             for em in error_msgs:
                                 logging.error('Error ' + em["code"] + ' : ' + em["message"])
                 retval = self.ack_code == 200
         except:
             e = sys.exc_info()[0]
-            logging.error('send_message failed', str(e))
+            logging.error('send_message failed'+ str(e))
         finally:
             self.ack_lock.release()
         logging.debug('send_message end')
