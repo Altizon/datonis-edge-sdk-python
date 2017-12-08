@@ -64,8 +64,7 @@ def instruction_worker(thread_name,gateway):
         try:
             instruction_dispatcher(gateway) 
         except:
-            e = sys.exc_info()[0]
-            logging.error('instruction_dispatcher failed' + str(e))
+            logging.error('instruction_dispatcher failed', exc_info=True)
                
 
 def instruction_dispatcher(gateway):
@@ -253,8 +252,7 @@ class EdgeGatewayMqtt(EdgeGateway):
                                 logging.error('Error ' + em["code"] + ' : ' + em["message"])
                 retval = self.ack_code == 200
         except:
-            e = sys.exc_info()[0]
-            logging.error('send_message failed'+ str(e))
+            logging.error('send_message failed', exe_info=True)
         finally:
             self.ack_lock.release()
         logging.debug('send_message end')
