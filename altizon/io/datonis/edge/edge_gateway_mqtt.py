@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import threading
+import time
 
 from . import edge_util
 from .edge_gateway import EdgeGateway
@@ -16,19 +17,31 @@ else:
     import Queue as Queue
     import thread as thread
 
-def on_connect(client, userdata, flags,rc):
+CONNECTING = 0
+CONNECTED = 1
+DISCONNECTED = 2
+RECONNECTING = 3
+UNAUTHORISED = 4
+
+def on_connect(client, userdata, flags, rc):
     if rc == mqtt.CONNACK_ACCEPTED:
-        userdata.authorised = True
+        userdata.state = CONNECTED
         logging.info("Connected to the MQTT broker with return code: " + str(flags) + ", " + str(rc))
         userdata.subscribe_for_instructions()
         userdata.subscribe_for_acks()
     elif rc == mqtt.CONNACK_REFUSED_NOT_AUTHORIZED:
         logging.error("Connection Unauthorised. ")
-        userdata.authorised = False
+        userdata.state = UNAUTHORISED
         client.disconnect()
+    else:
+        userdata.state = RECONNECTING
 
 
 def on_disconnect(client, userdata,rc):
+    if rc == mqtt.MQTT_ERR_SUCCESS and userdata.state != UNAUTHORISED:
+        userdata.state = DISCONNECTED
+    elif userdata.state != UNAUTHORISED:
+        userdata.state = RECONNECTING
     logging.info("Disconnected from the MQTT broker with return code: " + str(rc))
 
 def on_message(client, userdata, msg):
@@ -97,8 +110,8 @@ class EdgeGatewayMqtt(EdgeGateway):
         self.client_id = random_string(10)
         self.things = []
         self.username = in_gateway_config.access_key
-        self.password = edge_util.encode(in_gateway_config.secret_key,in_gateway_config.access_key)
-        self.authorised = True
+        self.password = edge_util.encode(in_gateway_config.secret_key, in_gateway_config.access_key)
+        self.state = DISCONNECTED
 
     def connect(self):
         self.mqtt_client = mqtt.Client(self.client_id, True, self)
@@ -112,6 +125,7 @@ class EdgeGatewayMqtt(EdgeGateway):
         if retval == 0:
             self.ack_lock = threading.Condition()
             self.mqtt_client.loop_start()
+            self.state = CONNECTING
             # Start a new thread for instruction execution
             thread.start_new_thread(instruction_worker, ('instruction-worker', self))
             return True
@@ -144,13 +158,13 @@ class EdgeGatewayMqtt(EdgeGateway):
         return retval
     
     def subscribe_for_acks(self):
-        if not self.authorised:
+        if self.state == UNAUTHORISED:
             logging.error("Unauthorised to subscribe, Please check access key and secret key")
             return False
         self.mqtt_client.subscribe('Altizon/Datonis/' + self.client_id + '/httpAck', 1)
 
     def subscribe_for_instructions(self):
-        if not self.authorised:
+        if self.state == UNAUTHORISED:
             logging.error("Unauthorised to subscribe, Please check access key and secret key")
             return False
         for thing in self.things:
@@ -196,7 +210,10 @@ class EdgeGatewayMqtt(EdgeGateway):
 
     def send_message(self, topic, payload, qos):
         logging.debug('send_message start')
-        if not self.authorised:
+        while self.state == CONNECTING or self.state == RECONNECTING:
+            logging.info("Waiting for connection...")
+            time.sleep(3)
+        if self.state == UNAUTHORISED:
             logging.error("Unauthorised to send_message, Please check access key and secret key")
             return False
         t1 = edge_util.get_ts()
