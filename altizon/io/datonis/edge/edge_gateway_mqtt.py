@@ -23,6 +23,8 @@ DISCONNECTED = 2
 RECONNECTING = 3
 UNAUTHORISED = 4
 
+ALIOT_PROTOCOL_VERSION = 2.0
+
 def on_connect(client, userdata, flags, rc):
     if rc == mqtt.CONNACK_ACCEPTED:
         userdata.state = CONNECTED
@@ -223,6 +225,7 @@ class EdgeGatewayMqtt(EdgeGateway):
         h = edge_util.encode(str(self.gateway_config.secret_key),data)
         payload['hash'] = h
         payload['access_key'] = str(self.gateway_config.access_key)
+        payload['aliot_protocol_version'] = ALIOT_PROTOCOL_VERSION
         data = json.dumps(payload, separators=(',', ':'))
         try:
             publish_response = self.mqtt_client.publish(topic, data, qos)
