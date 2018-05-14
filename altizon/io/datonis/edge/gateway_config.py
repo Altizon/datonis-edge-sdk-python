@@ -7,10 +7,10 @@ class GatewayConfig:
         self.secret_key = in_secret_key
         self.protocol = in_protocol
         if self.protocol == 'mqtt':
-            self.api_host = ('mqtt-broker.datonis.io' if in_api_host == None else in_api_host)
+            self.api_host = ('telemetry.datonis.io' if in_api_host == None else in_api_host)
             self.api_port = (1883 if in_api_port == None else in_api_port)
         elif self.protocol == 'mqtts':
-            self.api_host = ('mqtt-broker.datonis.io' if in_api_host == None else in_api_host)
+            self.api_host = ('telemetry.datonis.io' if in_api_host == None else in_api_host)
             self.api_port = (8883 if in_api_port == None else in_api_port)
         else:
             self.api_host = ('api.datonis.io' if in_api_host == None else in_api_host)
