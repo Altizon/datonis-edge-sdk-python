@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import threading
+import time
 
 from . import edge_util
 from .edge_gateway import EdgeGateway
@@ -16,13 +17,33 @@ else:
     import Queue as Queue
     import thread as thread
 
-def on_connect(client, userdata, flags,rc):
-    logging.info("Connected to the MQTT broker with return code: " + str(flags) + ", " + str(rc))
-    userdata.subscribe_for_instructions()
-    userdata.subscribe_for_acks()
+CONNECTING = 0
+CONNECTED = 1
+DISCONNECTED = 2
+RECONNECTING = 3
+UNAUTHORISED = 4
+
+ALIOT_PROTOCOL_VERSION = 2.0
+
+def on_connect(client, userdata, flags, rc):
+    if rc == mqtt.CONNACK_ACCEPTED:
+        userdata.state = CONNECTED
+        logging.info("Connected to the MQTT broker with return code: " + str(flags) + ", " + str(rc))
+        userdata.subscribe_for_instructions()
+        userdata.subscribe_for_acks()
+    elif rc == mqtt.CONNACK_REFUSED_NOT_AUTHORIZED:
+        logging.error("Connection Unauthorised. ")
+        userdata.state = UNAUTHORISED
+    else:
+        userdata.state = RECONNECTING
 
 
-def on_disconnect(client, userdata,rc):
+def on_disconnect(client, userdata, rc):
+    if userdata.state != UNAUTHORISED:
+        if rc == mqtt.MQTT_ERR_SUCCESS:
+            userdata.state = DISCONNECTED
+        else:
+            userdata.state = RECONNECTING
     logging.info("Disconnected from the MQTT broker with return code: " + str(rc))
 
 def on_message(client, userdata, msg):
@@ -43,11 +64,10 @@ def on_message(client, userdata, msg):
 def instruction_worker(thread_name,gateway):
     while True:
         try:
-            instruction_dispatcher(gateway) 
+            instruction_dispatcher(gateway)
         except:
-            e = sys.exc_info()[0]
-            logging.error('instruction_dispatcher failed', str(e))
-               
+            logging.error('instruction_dispatcher failed', exc_info=True)
+
 
 def instruction_dispatcher(gateway):
     instruction_str = gateway.instruction_queue.get()
@@ -78,7 +98,7 @@ def random_string(string_length=10):
 
 class EdgeGatewayMqtt(EdgeGateway):
     HTTP_ACK_MAX_RETRIES = 10
-    
+
     def __init__(self, in_gateway_config):
         EdgeGateway.__init__(self, in_gateway_config)
         self.mqtt_client = None
@@ -90,26 +110,29 @@ class EdgeGatewayMqtt(EdgeGateway):
         self.instruction_handler = None
         self.client_id = random_string(10)
         self.things = []
+        self.username = in_gateway_config.access_key
+        self.password = edge_util.encode(in_gateway_config.secret_key, in_gateway_config.access_key)
+        self.state = DISCONNECTED
 
     def connect(self):
         self.mqtt_client = mqtt.Client(self.client_id, True, self)
+        self.mqtt_client.username_pw_set(self.username, self.password)
         self.mqtt_client.on_connect = on_connect
         self.mqtt_client.on_disconnect = on_disconnect
         self.mqtt_client.on_message = on_message
         if self.gateway_config.protocol == 'mqtts' and self.gateway_config.cert_path != None:
             self.mqtt_client.tls_set(self.gateway_config.cert_path)
+        self.state = CONNECTING
         retval = self.mqtt_client.connect(self.gateway_config.api_host, self.gateway_config.api_port)
         if retval == 0:
             self.ack_lock = threading.Condition()
             self.mqtt_client.loop_start()
             # Start a new thread for instruction execution
             thread.start_new_thread(instruction_worker, ('instruction-worker', self))
-            self.subscribe_for_instructions()
-            self.subscribe_for_acks()
             return True
         else:
             return False
-        
+
     def thing_heartbeat(self, thing):
         logging.debug('thing_heartbeat start')
         data = edge_util.create_thing_heartbeat(thing)
@@ -134,11 +157,17 @@ class EdgeGatewayMqtt(EdgeGateway):
         retval = self.thing_event(bm)
         logging.debug('bulk_event end')
         return retval
-    
+
     def subscribe_for_acks(self):
+        if self.state == UNAUTHORISED:
+            logging.error("Unauthorised to subscribe, Please check access key and secret key")
+            return False
         self.mqtt_client.subscribe('Altizon/Datonis/' + self.client_id + '/httpAck', 1)
 
     def subscribe_for_instructions(self):
+        if self.state == UNAUTHORISED:
+            logging.error("Unauthorised to subscribe, Please check access key and secret key")
+            return False
         for thing in self.things:
             self.subscribe_for_thing_instruction(thing)
 
@@ -161,7 +190,7 @@ class EdgeGatewayMqtt(EdgeGateway):
             logging.debug("registered thing " + thing.name)
         else:
             logging.error("registration failed for thing " + thing.name + ", Return code: " + str(retval))
-                
+
         logging.debug('thing_register end')
         return retval
 
@@ -171,7 +200,7 @@ class EdgeGatewayMqtt(EdgeGateway):
         retval = self.send_message('Altizon/Datonis/' + self.client_id + '/alert', data, 0)
         logging.debug('alert end')
         return retval
-    
+
     # Sends an instruction ack in the form of an alert to datonis
     def instruction_ack(self, alert_key, alert_message, alert_level = 0, alert_data = {}):
         logging.debug('instruction_ack start')
@@ -182,6 +211,12 @@ class EdgeGatewayMqtt(EdgeGateway):
 
     def send_message(self, topic, payload, qos):
         logging.debug('send_message start')
+        while self.state == CONNECTING or self.state == RECONNECTING:
+            logging.info("Waiting for connection...")
+            time.sleep(3)
+        if self.state == UNAUTHORISED:
+            logging.error("Unauthorised to send_message, Please check access key and secret key")
+            return False
         t1 = edge_util.get_ts()
         self.ack_lock.acquire()
         self.ack_code = None
@@ -190,6 +225,7 @@ class EdgeGatewayMqtt(EdgeGateway):
         h = edge_util.encode(str(self.gateway_config.secret_key),data)
         payload['hash'] = h
         payload['access_key'] = str(self.gateway_config.access_key)
+        payload['aliot_protocol_version'] = ALIOT_PROTOCOL_VERSION
         data = json.dumps(payload, separators=(',', ':'))
         try:
             publish_response = self.mqtt_client.publish(topic, data, qos)
@@ -213,14 +249,13 @@ class EdgeGatewayMqtt(EdgeGateway):
                             if type(parsed) is list:
                                 error_msgs = parsed
                             else:
-                                error_msgs = parsed["errors"]
+                                error_msgs = parsed.get("errors")
 
                             for em in error_msgs:
                                 logging.error('Error ' + em["code"] + ' : ' + em["message"])
                 retval = self.ack_code == 200
         except:
-            e = sys.exc_info()[0]
-            logging.error('send_message failed', str(e))
+            logging.error('send_message failed', exc_info=True)
         finally:
             self.ack_lock.release()
         logging.debug('send_message end')
