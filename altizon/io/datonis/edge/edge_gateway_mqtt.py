@@ -5,15 +5,17 @@ import logging
 import sys
 import threading
 import time
-
+import requests
+import urllib3
 from . import edge_util
 from .edge_gateway import EdgeGateway
 import paho.mqtt.client as mqtt
-
+import certifi
 if edge_util.is_python3:
     import queue as Queue
     import _thread as thread
 else:
+    urllib3.disable_warnings()
     import Queue as Queue
     import thread as thread
 
@@ -178,21 +180,75 @@ class EdgeGatewayMqtt(EdgeGateway):
         else:
             logging.warn('Could not subscribe for instructions for thing: ' + thing.name)
 
-    def thing_register(self, thing):
-        logging.debug('thing_register start')
-        data = edge_util.create_thing_register(thing)
-        retval = self.send_message('Altizon/Datonis/' + self.client_id + '/register', data, 1)
-        #Add thing so that we set up instruction listeners for this thing
-        if thing not in self.things:
-            self.things.append(thing)
-            self.subscribe_for_thing_instruction(thing)
-        if retval == True:
-            logging.debug("registered thing " + thing.name)
-        else:
-            logging.error("registration failed for thing " + thing.name + ", Return code: " + str(retval))
 
-        logging.debug('thing_register end')
-        return retval
+
+    def get_thing_state(self, thing_key):
+        """Retrieves the state of a thing from the Datonis API."""
+        print(self.gateway_config.secret_key)
+        api_url = "https://api.datonis.io"
+        url = f"{api_url}/api/v3/things/{thing_key}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Access-Key": self.gateway_config.secret_key,
+        }
+        try:
+            response = requests.get(url, headers=headers, verify=certifi.where())  # Use certifi
+            print(response)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            data = response.json()
+            thing_data=data.get("thing")
+            return thing_data.get("state")
+        except requests.exceptions.RequestException as e:
+            logging.error(f"API request failed: {e}")
+            if response is not None:
+                logging.error(f"Response status code: {response.status_code}")
+                logging.error(f"Response content: {response.text}")  # Log the response content
+            return None
+        except ValueError as e:
+            logging.error(f"JSON decoding failed: {e}")
+            if response is not None:
+                logging.error(f"Response content: {response.text}")  # Log content when JSON fails
+            return None
+
+
+    def thing_register(self, thing):
+        """Registers a thing if it's not already registered and subscribes to instructions.
+
+        Args:
+            self: The EdgeGatewayMqtt instance.
+            thing: An object representing the thing (must have a 'thing_key' attribute).
+
+        Returns:
+            True if the registration/subscription process was successful, False otherwise.
+        """
+        logging.info(f"Registering/Subscribing for thing: {thing.thing_key}")
+
+        state = self.get_thing_state(thing.thing_key)
+        print("state",state)
+        if state is None:
+            logging.error(f"Failed to get state for thing: {thing.thing_key}. Skipping.")
+            return False
+
+        if state == "registered":
+            logging.info(f"Thing {thing.thing_key} is already registered. Subscribing...")
+            self.subscribe_for_thing_instruction(thing)
+            if thing not in self.things:
+                self.things.append(thing)  # Ensure it's in the list for future operations.
+            return True
+        else:
+            # Proceed with registration
+            data = edge_util.create_thing_register(thing)
+            retval = self.send_message('Altizon/Datonis/' + self.client_id + '/register', data, 1)
+
+            if retval:
+                logging.info(f"Thing {thing.thing_key} registered successfully. Subscribing...")
+                self.subscribe_for_thing_instruction(thing)
+                if thing not in self.things:
+                    self.things.append(thing)
+                return True
+            else:
+                logging.error(f"Failed to register thing {thing.thing_key}.")
+                return False
 
     def alert(self, thing_key, alert_message, alert_level = 0, alert_data = {}):
         logging.debug('alert start')
